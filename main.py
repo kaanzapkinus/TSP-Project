@@ -105,6 +105,42 @@ def tournament_selection(population, tournament_size):
     # Return the selected individual as a dictionary
     return {'Solution': best_individual['Solution'], 'Fitness': best_individual['Fitness']}
 
+#cycle crossover
+def cycle_crossover(parent1, parent2):
+    """
+    Perform Cycle Crossover (CX) on two parents to generate a child.
+
+    Args:
+        parent1 (list): The first parent solution.
+        parent2 (list): The second parent solution.
+
+    Returns:
+        list: The child solution.
+    """
+    size = len(parent1)
+    child = [None] * size
+
+    # Start with the first position
+    start_idx = 0
+    cycle_indices = set()
+
+    # Begin the cycle process
+    while start_idx not in cycle_indices:
+        cycle_indices.add(start_idx)
+        start_value = parent1[start_idx]
+        start_idx = parent2.index(start_value)
+
+    # Fill in the child with the cycle from parent1
+    for idx in cycle_indices:
+        child[idx] = parent1[idx]
+
+    # Fill the rest of the child from parent2
+    for idx in range(size):
+        if child[idx] is None:
+            child[idx] = parent2[idx]
+
+    return child
+
 # Function to create initial population
 def create_population(dataframe, num_individuals, include_greedy=True, greedy_function=True):
     """
@@ -156,10 +192,27 @@ if __name__ == "__main__":
     greedy_solution, greedy_fitness = greedy_algorithm(dataframe)
 
     # Include greedy solution in the population
-    population = create_population(dataframe, num_individuals=10, include_greedy=True, greedy_function=greedy_algorithm)
+    population = create_population(dataframe, num_individuals=50, include_greedy=True, greedy_function=greedy_algorithm)
     population['Fitness'] = population['Solution'].apply(lambda sol: calculate_fitness(sol, distance_matrix))
-    selected_individual = tournament_selection(population, tournament_size=3)
+    selected_individual = tournament_selection(population, tournament_size=5)
 
+    # Popülasyonu fitness değerine göre sırala
+    sorted_population = population.sort_values(by="Fitness")
+
+    # En iyi iki ebeveyni seç
+    parent1 = sorted_population.iloc[0]["Solution"]
+    parent2 = sorted_population.iloc[1]["Solution"]
+    
+    # Cycle Crossover ile yeni bir çocuk oluştur
+    child = cycle_crossover(parent1, parent2)
+
+    # Çocuğun fitness değerini hesapla
+    child_fitness = calculate_fitness(child, distance_matrix)
+
+    # Çocuğu popülasyona ekle
+    child_df = pd.DataFrame([{"Solution": child, "Fitness": child_fitness}])
+    population = pd.concat([population, child_df], ignore_index=True)     
+    
     # Print results
     print(f"File Name: {name}")
     print(f"File Type: {file_type}")
@@ -169,12 +222,20 @@ if __name__ == "__main__":
 
     print("Random Solution:")
     print(f" - City Sequence: {random_solution}")
-    print(f" - Total Distance (Fitness): {random_fitness}\n")
-
+  
     print("Greedy Algorithm Solution:")
     print(f" - City Sequence: {greedy_solution}")
-    print(f" - Total Distance (Fitness): {greedy_fitness}\n")
-
+    
+    # Print the child solution
+    print("Cycle Crossover Result:")
+    print(f"Parent 1: {parent1}\n")
+    print(f"Parent 2: {parent2}\n")
+    print(f"Child: {child}\n")
+    
+    print(f" - Random Fitness: {random_fitness}\n")
+    print(f" - Greedy Fitness: {greedy_fitness}\n")
+    print(f" - Child Fitness (Cycle Crossover ): {child_fitness}\n")
+    
     print("Tournament Selection Result:")
     print(f" - Selected Solution: {selected_individual['Solution']}")
     print(f" - Selected Fitness: {selected_individual['Fitness']}\n")
