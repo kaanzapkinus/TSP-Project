@@ -37,7 +37,7 @@ def parse_tsp_file(file_path):
 def calculate_distance(city1, city2):
     return math.sqrt((city2['X_Coordinate'] - city1['X_Coordinate'])**2 +
                      (city2['Y_Coordinate'] - city1['Y_Coordinate'])**2)
-
+    
 # Function to create distance matrix
 def create_distance_matrix(dataframe):
     distance_matrix = pd.DataFrame(index=dataframe['City_ID'], columns=dataframe['City_ID'], dtype=float)
@@ -106,9 +106,9 @@ def tournament_selection(population, tournament_size):
     return {'Solution': best_individual['Solution'], 'Fitness': best_individual['Fitness']}
 
 #cycle crossover
-def cycle_crossover(parent1, parent2):
+def pmx_crossover(parent1, parent2):
     """
-    Perform Cycle Crossover (CX) on two parents to generate a child.
+    Perform Partially Mapped Crossover (PMX) on two parents to generate a child.
 
     Args:
         parent1 (list): The first parent solution.
@@ -120,24 +120,32 @@ def cycle_crossover(parent1, parent2):
     size = len(parent1)
     child = [None] * size
 
-    # Start with the first position
-    start_idx = 0
-    cycle_indices = set()
+    # Select two random crossover points
+    point1, point2 = sorted(random.sample(range(size), 2))
 
-    # Begin the cycle process
-    while start_idx not in cycle_indices:
-        cycle_indices.add(start_idx)
-        start_value = parent1[start_idx]
-        start_idx = parent2.index(start_value)
+    # Copy the segment from parent1 to the child
+    child[point1:point2 + 1] = parent1[point1:point2 + 1]
 
-    # Fill in the child with the cycle from parent1
-    for idx in cycle_indices:
-        child[idx] = parent1[idx]
+    # Map the values from parent2 to child, ensuring no duplicates
+    for i in range(point1, point2 + 1):
+        if parent2[i] not in child:
+            val = parent2[i]
+            idx = i
 
-    # Fill the rest of the child from parent2
-    for idx in range(size):
-        if child[idx] is None:
-            child[idx] = parent2[idx]
+            # Find the corresponding position in parent1
+            while True:
+                corresponding_val = parent1[idx]
+                idx = parent2.index(corresponding_val)
+                if child[idx] is None:
+                    break
+
+            # Place the value in the correct position
+            child[idx] = val
+
+    # Fill in the remaining positions from parent2
+    for i in range(size):
+        if child[i] is None:
+            child[i] = parent2[i]
 
     return child
 
@@ -157,6 +165,8 @@ def mutation_function(individual, mutation_probability=0.1, mutation_type='swap'
     mutated_individual = individual.copy()
 
     # Apply mutation based on probability
+    
+
     if random.random() < mutation_probability:
         if mutation_type == 'swap':
             # Swap Mutation: Swap two random cities
@@ -238,7 +248,7 @@ def create_new_epoch(previous_population, distance_matrix, mutation_probability=
 
         # Perform crossover based on probability
         if random.random() < crossover_probability:
-            child = cycle_crossover(parent1, parent2)
+            child = pmx_crossover(parent1, parent2)
         else:
             child = parent1.copy()  # No crossover, copy parent1 as child
 
@@ -277,8 +287,8 @@ if __name__ == "__main__":
     parent2 = sorted_population.iloc[1]["Solution"]
     
     # Cycle Crossover ile yeni bir çocuk oluştur
-    child = cycle_crossover(parent1, parent2)
-    mutated_child = mutation_function(child, mutation_probability=0.3, mutation_type='swap')
+    child = pmx_crossover(parent1, parent2)
+    mutated_child = mutation_function(child, mutation_probability=0.2, mutation_type='swap')
 
     # Çocuğun fitness değerini hesapla
     child_fitness = calculate_fitness(child, distance_matrix)
@@ -289,11 +299,11 @@ if __name__ == "__main__":
     population = pd.concat([population, child_df], ignore_index=True)    
 
     # İlk popülasyonu oluştur
-    population = create_population(dataframe, num_individuals=50, include_greedy=True, greedy_function=greedy_algorithm)
+    population = create_population(dataframe, num_individuals=50, include_greedy=1, greedy_function=greedy_algorithm)
     population['Fitness'] = population['Solution'].apply(lambda sol: calculate_fitness(sol, distance_matrix))
 
     # Epoch döngüsü başlat
-    num_epochs = 200
+    num_epochs = 1000
     for epoch in range(num_epochs):
         print(f"Epoch {epoch + 1}")
         population = create_new_epoch(population, distance_matrix, mutation_probability=0.3, pop_size=100)
