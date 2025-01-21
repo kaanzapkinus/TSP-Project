@@ -1,12 +1,14 @@
 import pandas as pd
 import math
 import random
+import matplotlib.pyplot as plt
+import numpy as np
 
-# Function to parse TSP file and return DataFrame and metadata
+# TSP dosyasını oku ve DataFrame döndür
 def parse_tsp_file(file_path):
     with open(file_path, 'r') as infile:
         name, file_type, comment, dimension, edge_weight_type = None, None, None, None, None
-
+        
         while True:
             line = infile.readline().strip()
             if not line or line.startswith('NODE_COORD_SECTION'):
@@ -21,330 +23,233 @@ def parse_tsp_file(file_path):
                 dimension = int(line.split(':')[1].strip())
             elif line.startswith('EDGE_WEIGHT_TYPE'):
                 edge_weight_type = line.split(':')[1].strip()
-
-        if None in [name, file_type, comment, dimension, edge_weight_type]:
-            raise ValueError("Missing header information in the TSP file!")
-
+        
         city_list = []
         for _ in range(dimension):
             line = infile.readline().strip().split()
-            city_list.append([int(line[0]), float(line[1]), float(line[2])])
+            city_id = int(line[0])
+            x_coord = float(line[1])
+            y_coord = float(line[2])
+            city_list.append([city_id, x_coord, y_coord])
 
         dataframe = pd.DataFrame(city_list, columns=['City_ID', 'X_Coordinate', 'Y_Coordinate'])
         return dataframe, name, file_type, comment, dimension, edge_weight_type
 
-# Function to calculate Euclidean distance between two cities
+# İki şehir arasındaki Öklid mesafesini hesapla
 def calculate_distance(city1, city2):
     return math.sqrt((city2['X_Coordinate'] - city1['X_Coordinate'])**2 +
                      (city2['Y_Coordinate'] - city1['Y_Coordinate'])**2)
-    
-# Function to create distance matrix
-def create_distance_matrix(dataframe):
-    distance_matrix = pd.DataFrame(index=dataframe['City_ID'], columns=dataframe['City_ID'], dtype=float)
-    for city1_id in dataframe['City_ID']:
-        for city2_id in dataframe['City_ID']:
-            if city1_id != city2_id:
-                city1 = dataframe[dataframe['City_ID'] == city1_id].iloc[0]
-                city2 = dataframe[dataframe['City_ID'] == city2_id].iloc[0]
-                distance_matrix.loc[city1_id, city2_id] = calculate_distance(city1, city2)
-            else:
-                distance_matrix.loc[city1_id, city2_id] = 0
-    return distance_matrix
 
-# Function to calculate fitness of a solution
-def calculate_fitness(solution, distance_matrix):
-    total_distance = sum(distance_matrix.loc[solution[i], solution[i + 1]] for i in range(len(solution) - 1))
-    total_distance += distance_matrix.loc[solution[-1], solution[0]]  # Return to start
+# Bütün şehirler arasındaki mesafeleri saklayan bir matris oluştur
+def create_distance_matrix(dataframe):
+    
+    city_ids = dataframe['City_ID'].values
+    city_to_idx = {cid: i for i, cid in enumerate(city_ids)}
+    coords = dataframe[['X_Coordinate', 'Y_Coordinate']].values
+    num_cities = len(city_ids)
+
+    distance_matrix = np.zeros((num_cities, num_cities), dtype=float)
+    for i in range(num_cities):
+        for j in range(i + 1, num_cities):
+            dist = math.sqrt((coords[i][0] - coords[j][0]) ** 2 + (coords[i][1] - coords[j][1]) ** 2)
+            distance_matrix[i, j] = dist
+            distance_matrix[j, i] = dist
+    
+    return distance_matrix, city_to_idx
+
+# Bir çözümün (rota) toplam mesafesini (fitness) hesapla
+def calculate_fitness(solution, distance_matrix, city_to_idx):
+    total_distance = 0
+    for i in range(len(solution) - 1):
+        total_distance += distance_matrix[city_to_idx[solution[i]], city_to_idx[solution[i + 1]]]
+    total_distance += distance_matrix[city_to_idx[solution[-1]], city_to_idx[solution[0]]]
     return total_distance
 
-# Function to generate a random solution
-def generate_random_solution(dataframe):
-    solution = dataframe['City_ID'].tolist()
-    random.shuffle(solution)
-    return solution
-
-# Greedy algorithm for solving the TSP
-def greedy_algorithm(dataframe, start_city=0):
+# Greedy algoritma (start_city_id: gerçek şehir ID'si, 1 <= start_city_id <= dimension)
+def greedy_algorithm(dataframe, start_city_id=1):
     unvisited = dataframe['City_ID'].tolist()
-    current_city_id = unvisited.pop(start_city)
+    unvisited.remove(start_city_id)
+    current_city_id = start_city_id
     visited = [current_city_id]
     total_distance = 0
 
     while unvisited:
         current_city = dataframe[dataframe['City_ID'] == current_city_id].iloc[0]
-        nearest_city_id = min(unvisited, key=lambda city_id: calculate_distance(
-            current_city, dataframe[dataframe['City_ID'] == city_id].iloc[0]))
+        nearest_city_id = min(unvisited, 
+                              key=lambda cid: calculate_distance(current_city, 
+                                                                 dataframe[dataframe['City_ID'] == cid].iloc[0]))
         nearest_city = dataframe[dataframe['City_ID'] == nearest_city_id].iloc[0]
         total_distance += calculate_distance(current_city, nearest_city)
         visited.append(nearest_city_id)
-        current_city_id = nearest_city_id
         unvisited.remove(nearest_city_id)
+        current_city_id = nearest_city_id
 
     total_distance += calculate_distance(dataframe[dataframe['City_ID'] == current_city_id].iloc[0],
                                          dataframe[dataframe['City_ID'] == visited[0]].iloc[0])
     return visited, total_distance
 
-# Function to perform tournament selection
-def tournament_selection(population, tournament_size):
-    """
-    Perform tournament selection to choose one individual from the population.
-
-    Args:
-        population (pd.DataFrame): The population DataFrame with 'Solution' and 'Fitness' columns.
-        tournament_size (int): The number of individuals to include in the tournament.
-
-    Returns:
-        dict: The selected individual as a dictionary with 'Solution' and 'Fitness'.
-    """
-    # Randomly select individuals for the tournament
-    tournament = population.sample(n=tournament_size)
-
-    # Find the individual with the best (lowest) fitness
-    best_individual = tournament.loc[tournament['Fitness'].idxmin()]
-
-    # Return the selected individual as a dictionary
-    return {'Solution': best_individual['Solution'], 'Fitness': best_individual['Fitness']}
-
-#cycle crossover
+# PMX çaprazlama (crossover)
 def pmx_crossover(parent1, parent2):
-    """
-    Perform Partially Mapped Crossover (PMX) on two parents to generate a child.
-
-    Args:
-        parent1 (list): The first parent solution.
-        parent2 (list): The second parent solution.
-
-    Returns:
-        list: The child solution.
-    """
     size = len(parent1)
     child = [None] * size
-
-    # Select two random crossover points
     point1, point2 = sorted(random.sample(range(size), 2))
-
-    # Copy the segment from parent1 to the child
+    
     child[point1:point2 + 1] = parent1[point1:point2 + 1]
 
-    # Map the values from parent2 to child, ensuring no duplicates
     for i in range(point1, point2 + 1):
         if parent2[i] not in child:
             val = parent2[i]
             idx = i
-
-            # Find the corresponding position in parent1
             while True:
                 corresponding_val = parent1[idx]
                 idx = parent2.index(corresponding_val)
                 if child[idx] is None:
                     break
-
-            # Place the value in the correct position
             child[idx] = val
 
-    # Fill in the remaining positions from parent2
     for i in range(size):
         if child[i] is None:
             child[i] = parent2[i]
-
+    
     return child
 
-# mutation function
-def mutation_function(individual, mutation_probability=0.1, mutation_type='swap'):
-    """
-    Apply mutation to a given solution (individual).
-
-    Args:
-        individual (list): A solution (list of city IDs) to mutate.
-        mutation_probability (float): Probability of mutation occurring.
-        mutation_type (str): Type of mutation ('swap' or 'inversion').
-
-    Returns:
-        list: Mutated individual (or the same individual if no mutation occurs).
-    """
-    mutated_individual = individual.copy()
-
-    # Apply mutation based on probability
-    
-
+# Mutasyon (swap)
+def mutation_function(individual, mutation_probability):
     if random.random() < mutation_probability:
-        if mutation_type == 'swap':
-            # Swap Mutation: Swap two random cities
-            idx1, idx2 = random.sample(range(len(mutated_individual)), 2)
-            mutated_individual[idx1], mutated_individual[idx2] = mutated_individual[idx2], mutated_individual[idx1]
-        elif mutation_type == 'inversion':
-            # Inversion Mutation: Reverse a random segment of the solution
-            start, end = sorted(random.sample(range(len(mutated_individual)), 2))
-            mutated_individual[start:end + 1] = reversed(mutated_individual[start:end + 1])
-        else:
-            raise ValueError(f"Unknown mutation type: {mutation_type}")
+        idx1, idx2 = random.sample(range(len(individual)), 2)
+        individual[idx1], individual[idx2] = individual[idx2], individual[idx1]
+    return individual
 
-    return mutated_individual
+# Hassas Mutasyon
+def precise_mutation(individual, distance_matrix, city_to_idx):
+    best_fitness = calculate_fitness(individual, distance_matrix, city_to_idx)
+    best_individual = individual.copy()
 
-    return mutated_individual
-# Function to create initial population
-def create_population(dataframe, num_individuals, include_greedy=True, greedy_function=True):
-    """
-    Create an initial population of solutions.
-    """
-    population_data = []
-    city_ids = dataframe['City_ID'].tolist()
+    for i in range(len(individual) - 1):
+        for j in range(i + 1, len(individual)):
+            mutated = individual.copy()
+            mutated[i:j + 1] = reversed(mutated[i:j + 1])
+            fitness = calculate_fitness(mutated, distance_matrix, city_to_idx)
+            if fitness < best_fitness:
+                best_fitness = fitness
+                best_individual = mutated
+    return best_individual
 
-    # Add the greedy solution if required
-    if include_greedy and greedy_function: 
-        greedy_solution, greedy_fitness = greedy_function(dataframe)
-        population_data.append({'Solution': greedy_solution, 'Fitness': greedy_fitness})
-        num_individuals -= 1
+# Turnuva seçimi (tournament selection)
+def tournament_selection(population, tournament_size=5):
+    tournament = population.sample(n=tournament_size)
+    best_index = tournament['Fitness'].values.argmin()
+    best_individual = tournament.iloc[best_index]
+    return {'Solution': best_individual['Solution'], 'Fitness': best_individual['Fitness']}
 
-    # Create random solutions for the rest of the population
-    for _ in range(num_individuals):
-        random.shuffle(city_ids)
-        population_data.append({'Solution': city_ids.copy(), 'Fitness': None})
-
-    # Return the population as a DataFrame
-    return pd.DataFrame(population_data)
-
-# Function to print population information
-def print_population_info(population):
-    if 'Fitness' not in population or population['Fitness'].isnull().all():
-        print("No fitness values available in the population.")
-        return
-
-    size = len(population)
-    best_score = population['Fitness'].min()
-    median_score = population['Fitness'].median()
-    worst_score = population['Fitness'].max()
-
-    print("Population Information:")
-    print(f" - Population size: {size}")
-    print(f" - Best fitness score: {best_score}")
-    print(f" - Median fitness score: {median_score}")
-    print(f" - Worst fitness score: {worst_score}")
-
-def create_new_epoch(previous_population, distance_matrix, mutation_probability=0.1, crossover_probability=0.8, pop_size=50):
-    """
-    Create a new population (epoch) from the previous population.
-
-    Args:
-        previous_population (pd.DataFrame): Current population with 'Solution' and 'Fitness'.
-        distance_matrix (pd.DataFrame): Distance matrix for calculating fitness.
-        mutation_probability (float): Probability of mutating a child.
-        crossover_probability (float): Probability of performing crossover.
-        pop_size (int): The desired size of the new population.
-
-    Returns:
-        pd.DataFrame: The new population with updated solutions and fitness values.
-    """
+# Create a new generation (epoch)
+def create_new_epoch(previous_population, distance_matrix, city_to_idx, mutation_probability, crossover_probability, pop_size, dataframe):
     new_population = []
-    
-    # Ensure the best solution is carried forward (elitism)
-    best_individual = previous_population.loc[previous_population['Fitness'].idxmin()]
-    new_population.append({'Solution': best_individual['Solution'], 'Fitness': best_individual['Fitness']})
 
-    while len(new_population) < pop_size:
-        # Select parents
-        parent1 = tournament_selection(previous_population, tournament_size=5)['Solution']
-        parent2 = tournament_selection(previous_population, tournament_size=5)['Solution']
+    elite_count = max(1, int(0.10 * pop_size))
+    best_individuals = previous_population.nsmallest(elite_count, 'Fitness')
+    new_population.extend(best_individuals.to_dict('records'))
 
-        # Perform crossover based on probability
+    for _ in range(pop_size - elite_count):
+        parent1 = tournament_selection(previous_population)['Solution']
+        parent2 = tournament_selection(previous_population)['Solution']
+        
         if random.random() < crossover_probability:
             child = pmx_crossover(parent1, parent2)
         else:
-            child = parent1.copy()  # No crossover, copy parent1 as child
+            child = parent1.copy()
 
-        # Apply mutation
         mutated_child = mutation_function(child, mutation_probability)
+        precise_child = precise_mutation(mutated_child, distance_matrix, city_to_idx)
+        child_fitness = calculate_fitness(precise_child, distance_matrix, city_to_idx)
 
-        # Calculate fitness for the mutated child
-        child_fitness = calculate_fitness(mutated_child, distance_matrix)
+        new_population.append({'Solution': precise_child, 'Fitness': child_fitness})
 
-        # Add the child to the new population
-        new_population.append({'Solution': mutated_child, 'Fitness': child_fitness})
-
-    # Convert to DataFrame
     return pd.DataFrame(new_population)
 
-# Main logic
+# Başlangıç popülasyonu oluşturma
+def create_population(dataframe, num_individuals):
+    population_data = []
+    city_ids = dataframe['City_ID'].tolist()
+
+    for _ in range(num_individuals):
+        individual = random.sample(city_ids, len(city_ids))
+        population_data.append({'Solution': individual, 'Fitness': None})
+    
+    return pd.DataFrame(population_data)
+
 if __name__ == "__main__":
+    random.seed(42)
     dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file('berlin52.tsp')
+    distance_matrix, city_to_idx = create_distance_matrix(dataframe)
 
-    distance_matrix = create_distance_matrix(dataframe)
-    random_solution = generate_random_solution(dataframe)
-    random_fitness = calculate_fitness(random_solution, distance_matrix)
+    population = create_population(dataframe, num_individuals=100)
+    population['Fitness'] = population['Solution'].apply(
+        lambda sol: calculate_fitness(sol, distance_matrix, city_to_idx)
+    )
 
-    greedy_solution, greedy_fitness = greedy_algorithm(dataframe)
+    print("Greedy Algoritma ile Çözüm:")
+    greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
+    print(f"Greedy Solution: {greedy_solution}")
+    print(f"Greedy Fitness: {greedy_fitness}\n")
 
-    # Include greedy solution in the population
-    population = create_population(dataframe, num_individuals=25, include_greedy=True, greedy_function=greedy_algorithm)
-    population['Fitness'] = population['Solution'].apply(lambda sol: calculate_fitness(sol, distance_matrix))
-    selected_individual = tournament_selection(population, tournament_size=20)
+    num_epochs = 100
+    best_fitness_over_time = []
 
-    # Popülasyonu fitness değerine göre sırala
-    sorted_population = population.sort_values(by="Fitness")
+    # Matplotlib real-time plot setup
+    plt.ion()
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
 
-    # En iyi iki ebeveyni seç
-    parent1 = sorted_population.iloc[0]["Solution"]
-    parent2 = sorted_population.iloc[1]["Solution"]
-    
-    # Cycle Crossover ile yeni bir çocuk oluştur
-    child = pmx_crossover(parent1, parent2)
-    mutated_child = mutation_function(child, mutation_probability=0.2, mutation_type='swap')
+    ax1.set_xlim(0, num_epochs)
+    initial_fitness = population['Fitness'].min()
+    ax1.set_ylim(0, initial_fitness * 1.2)
+    ax1.set_xlabel("Epoch")
+    ax1.set_ylabel("Fitness")
+    ax1.set_title("Real-Time Fitness Progress")
+    ax1.legend(["Best Fitness"])
 
-    # Çocuğun fitness değerini hesapla
-    child_fitness = calculate_fitness(child, distance_matrix)
-    mutated_child_fitness = calculate_fitness(mutated_child, distance_matrix)
-    
-    # Çocuğu popülasyona ekle
-    child_df = pd.DataFrame([{'Solution': mutated_child, 'Fitness': child_fitness}])
-    population = pd.concat([population, child_df], ignore_index=True)    
+    ax2.set_title("Best Route")
+    ax2.set_xlabel("X Coordinate")
+    ax2.set_ylabel("Y Coordinate")
+    ax2.grid(True)
 
-    # İlk popülasyonu oluştur
-    population = create_population(dataframe, num_individuals=50, include_greedy=1, greedy_function=greedy_algorithm)
-    population['Fitness'] = population['Solution'].apply(lambda sol: calculate_fitness(sol, distance_matrix))
-
-    # Epoch döngüsü başlat
-    num_epochs = 1000
     for epoch in range(num_epochs):
-        print(f"Epoch {epoch + 1}")
-        population = create_new_epoch(population, distance_matrix, mutation_probability=0.3, pop_size=100)
-        print_population_info(population)
+        mutation_probability = max(0.1, 0.4 * (1 - epoch / num_epochs))
+        population = create_new_epoch(
+            previous_population=population,
+            distance_matrix=distance_matrix,
+            city_to_idx=city_to_idx,
+            mutation_probability=mutation_probability,
+            crossover_probability=0.6,
+            pop_size=200,
+            dataframe=dataframe
+        )
+        best_fitness = population['Fitness'].min()
+        best_fitness_over_time.append(best_fitness)
 
-    # En iyi sonucu yazdır
+        if epoch % 5 == 0:
+            ax1.plot(range(len(best_fitness_over_time)), best_fitness_over_time, label="Best Fitness")
+
+            best_solution = population.loc[population['Fitness'].idxmin()]
+            best_route = best_solution['Solution']
+            coords = dataframe.set_index('City_ID').loc[best_route][['X_Coordinate', 'Y_Coordinate']].values
+            coords = np.vstack([coords, coords[0]])
+
+            ax2.clear()
+            ax2.plot(coords[:, 0], coords[:, 1], marker='o', linestyle='-', color='b')
+            for i, city_id in enumerate(best_route):
+                ax2.text(coords[i, 0], coords[i, 1], str(city_id), fontsize=9, ha='right', va='bottom', color='red')
+
+            plt.draw()
+            plt.pause(1)
+
+        print(f"Epoch {epoch + 1}/{num_epochs}, Best Fitness: {best_fitness}")
+
+    plt.ioff()
+    plt.show()
+
     best_solution = population.loc[population['Fitness'].idxmin()]
-    print("Best Solution:", best_solution)
+    best_route = best_solution['Solution']
+    print("Best Route (City IDs):", best_route)
+    print("Best Fitness (Total Distance):", best_solution['Fitness'])
 
-    # Popülasyon bilgisini yazdır
-    print_population_info(population)
-
-    #Print results
-    print(f"File Name: {name}")
-    print(f"File Type: {file_type}")
-    print(f"Comment: {comment}")
-    print(f"Number of Cities (Dimension): {dimension}")
-    print(f"Edge Weight Type: {edge_weight_type}\n")
-
-    print("Random Solution:")
-    print(f" - City Sequence: {random_solution}")
-  
-    print("Greedy Algorithm Solution:")
-    print(f" - City Sequence: {greedy_solution}")
-    
-    # Print the child solution
-    print("Cycle Crossover Result:")
-    print(f"Parent 1: {parent1}\n")
-    print(f"Parent 2: {parent2}\n")
-    print(f"Child: {child}\n")
-    
-    print(f" - Random Fitness: {random_fitness}\n")
-    print(f" - Greedy Fitness: {greedy_fitness}\n")
-    print(f" - Child Fitness (Cycle Crossover ): {child_fitness}\n")
-    print(f" - Mutated Child Fitness (Mutation): {mutated_child_fitness}\n")
-    
-    print("Tournament Selection Result:")
-    print(f" - Selected Solution: {selected_individual['Solution']}")
-    print(f" - Selected Fitness: {selected_individual['Fitness']}\n")
-    
-    print("Best Solution Across All Epochs:")
-    print(best_solution)
-    
-    print_population_info(population)
