@@ -85,7 +85,7 @@ def calculate_fitness(solution, distance_matrix, city_to_idx):
     return total_distance
 
 
-# greedy algorithm (start_city_id: gerçek şehir ID'si, 1 <= start_city_id <= dimension)
+# greedy algorithm
 def greedy_algorithm(dataframe, start_city_id=1):
     unvisited = dataframe["City_ID"].tolist()
     unvisited.remove(start_city_id)
@@ -140,7 +140,7 @@ def pmx_crossover(parent1, parent2):
     return child
 
 
-# mutation function
+# swap mutation function
 def mutation_function(individual, mutation_probability):
     if random.random() < mutation_probability:
         idx1, idx2 = random.sample(range(len(individual)), 2)
@@ -164,7 +164,7 @@ def precise_mutation(individual, distance_matrix, city_to_idx):
     return best_individual
 
 
-# Turnuva seçimi (tournament selection)
+# tournament selection
 def tournament_selection(population, tournament_size=5):
     tournament = population.sample(n=tournament_size)
     best_index = tournament["Fitness"].values.argmin()
@@ -175,7 +175,7 @@ def tournament_selection(population, tournament_size=5):
     }
 
 
-# Create a new generation (epoch)
+# epoch
 def create_new_epoch(
     previous_population,
     distance_matrix,
@@ -186,8 +186,9 @@ def create_new_epoch(
     dataframe,
 ):
     new_population = []
-
-    elite_count = max(1, int(0.10 * pop_size))
+    
+    #elite selection
+    elite_count = max(1, int(0.10 * pop_size)) # 10% of the population
     best_individuals = previous_population.nsmallest(elite_count, "Fitness")
     new_population.extend(best_individuals.to_dict("records"))
 
@@ -209,7 +210,7 @@ def create_new_epoch(
     return pd.DataFrame(new_population)
 
 
-# Başlangıç popülasyonu oluşturma
+# create population
 def create_population(dataframe, num_individuals):
     population_data = []
     city_ids = dataframe["City_ID"].tolist()
@@ -224,7 +225,7 @@ def create_population(dataframe, num_individuals):
 if __name__ == "__main__":
     random.seed(random.randint(50, 100))
     dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file(
-        "berlin11.tsp"
+        "berlin52.tsp"
     )
     distance_matrix, city_to_idx = create_distance_matrix(dataframe)
 
@@ -233,83 +234,116 @@ if __name__ == "__main__":
         lambda sol: calculate_fitness(sol, distance_matrix, city_to_idx)
     )
 
-    print("Greedy Algoritma ile Çözüm:")
-    greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
-    print(f"Greedy Solution: {greedy_solution}")
-    print(f"Greedy Fitness: {greedy_fitness}\n")
-
-    num_epochs = 100
+    #settings for the genetic algorithms
+    num_epochs = 15
+    crossover_probability = 0.6
+    pop_size = 200
+    mutation_probability = max(0.1, 0.4 * (1 - epoch / num_epochs))
+    
     best_fitness_over_time = []
+    
+    # Matplotlib için başlangıç ayarları
+    plt.ion()  # Interactive mode enabled
+    fig, ax1 = plt.subplots(1, 1, figsize=(8, 6))  # Sadece fitness tablosu
 
-    # Matplotlib real-time plot setup
-    plt.ion()
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-
-    ax1.set_xlim(0, num_epochs)
-    initial_fitness = population["Fitness"].min()
-    ax1.set_ylim(0, initial_fitness * 1.2)
+    # Fitness grafiği başlangıç ayarları
+    ax1.set_title(f"Real-Time Fitness Progress ({dimension} Cities - {name})")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Fitness")
-    ax1.set_title("Real-Time Fitness Progress")
-    ax1.legend(["Best Fitness"])
+    initial_fitness = population["Fitness"].min()
+    ax1.set_xlim(1, num_epochs)
+    ax1.set_ylim(0, initial_fitness * 1.2)
 
-    ax2.set_title("Best Route")
-    ax2.set_xlabel("X Coordinate")
-    ax2.set_ylabel("Y Coordinate")
-    ax2.grid(True)
-
+    # Epoch döngüsü
     for epoch in range(num_epochs):
-        mutation_probability = max(0.1, 0.4 * (1 - epoch / num_epochs))
+        mutation_probability = mutation_probability
         population = create_new_epoch(
             previous_population=population,
             distance_matrix=distance_matrix,
             city_to_idx=city_to_idx,
             mutation_probability=mutation_probability,
-            crossover_probability=0.6,
-            pop_size=200,
+            crossover_probability =crossover_probability,
+            pop_size=pop_size,
             dataframe=dataframe,
         )
         best_fitness = population["Fitness"].min()
         best_fitness_over_time.append(best_fitness)
+    
+        # Fitness tablosunu her epoch'ta güncelle
+        ax1.clear()
+        ax1.set_title(f"Real-Time Fitness Progress ({dimension} Cities - {name})")
+        ax1.set_xlabel(f"Epoch (Best Fitness: {best_fitness:.2f})")
+        ax1.set_ylabel("Fitness")
+        ax1.set_xlim(1, num_epochs)
+        ax1.set_ylim(0, initial_fitness * 1.2)
+        ax1.plot(
+            range(1, len(best_fitness_over_time) + 1),
+            best_fitness_over_time,
+            color="teal",
+        )
 
-        if epoch % 5 == 0:
-            ax1.plot(
-                range(len(best_fitness_over_time)),
-                best_fitness_over_time,
-                label="Best Fitness",
-            )
-
-            best_solution = population.loc[population["Fitness"].idxmin()]
-            best_route = best_solution["Solution"]
-            coords = (
-                dataframe.set_index("City_ID")
-                .loc[best_route][["X_Coordinate", "Y_Coordinate"]]
-                .values
-            )
-            coords = np.vstack([coords, coords[0]])
-
-            ax2.clear()
-            ax2.plot(coords[:, 0], coords[:, 1], marker="o", linestyle="-", color="b")
-            for i, city_id in enumerate(best_route):
-                ax2.text(
-                    coords[i, 0],
-                    coords[i, 1],
-                    str(city_id),
-                    fontsize=9,
-                    ha="right",
-                    va="bottom",
-                    color="red",
-                )
-
-            plt.draw()
-            plt.pause(1)
+        # Fitness tablosunu güncelle ve göster
+        plt.draw()
+        plt.pause(0.1)
 
         print(f"Epoch {epoch + 1}/{num_epochs}, Best Fitness: {best_fitness}")
 
-    plt.ioff()
-    plt.show()
+    # Epoch döngüsü tamamlandıktan sonra rota tablosu oluştur
+    plt.ioff()  # Interactive mode off
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))  # İki grafik yan yana
+    ax1.set_title(f"Final Fitness Progress ({dimension} Cities - {name})")
+    ax1.set_xlabel(f"Epoch (Best Fitness: {best_fitness:.2f})")
+    ax1.set_ylabel("Fitness")
+    ax1.set_xlim(1, num_epochs)
+    ax1.set_ylim(0, initial_fitness * 1.2)
+    ax1.plot(
+        range(1, len(best_fitness_over_time) + 1),
+        best_fitness_over_time,
+        color="teal",
+    )
+
+    # Rota tablosunu çiz
+    ax2.set_title("Best Route")
+    ax2.set_xlabel("X Coordinate")
+    ax2.set_ylabel("Y Coordinate")
+    ax2.grid(True)
 
     best_solution = population.loc[population["Fitness"].idxmin()]
     best_route = best_solution["Solution"]
+    coords = (
+        dataframe.set_index("City_ID")
+        .loc[best_route][["X_Coordinate", "Y_Coordinate"]]
+        .values
+    )
+    coords = np.vstack([coords, coords[0]])
+    ax2.plot(coords[:, 0], coords[:, 1], marker="o", linestyle="-", color="b")
+
+    for i, city_id in enumerate(best_route):
+        ax2.text(
+            coords[i, 0],
+            coords[i, 1],
+            str(city_id),
+            fontsize=9,
+            ha="right",
+            va="bottom",
+            color="red",
+        )
+
+    # Son tabloyu kaydet ve göster
+    plt.tight_layout()
+    final_fitness = round(best_fitness_over_time[-1], 2)
+    plot_filename = f"{name}_{num_epochs}Epochs_Crossover={crossover_probability}_PopSize={pop_size}_BestFitness={final_fitness}.png"
+    plt.savefig(plot_filename)
+    plt.show()
+
+    # Greedy çözümlerin en sonda yazılması
+    print("\nGreedy Algorithm Solutions (After GA):")
+    greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
+    print(f"Greedy Solution: {greedy_solution}")
+    print(f"Greedy Fitness: {greedy_fitness}\n")
+    
     print("Best Route (City IDs):", best_route)
     print("Best Fitness (Total Distance):", best_solution["Fitness"])
+
+
