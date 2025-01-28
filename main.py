@@ -4,6 +4,14 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 
+COLOR_PALETTE = {
+    'main': "#3498DB",
+    'secondary': "#E74C3C",
+    'background': "#F8F9F9",
+    'text': "#2C3E50",
+    'accent': "#1ABC9C"
+}
+
 
 # TSP dosyasını oku ve DataFrame döndür
 def parse_tsp_file(file_path):
@@ -165,7 +173,7 @@ def precise_mutation(individual, distance_matrix, city_to_idx):
 
 
 # tournament selection
-def tournament_selection(population, tournament_size=5):
+def tournament_selection(population, tournament_size=5): # tournament size
     tournament = population.sample(n=tournament_size)
     best_index = tournament["Fitness"].values.argmin()
     best_individual = tournament.iloc[best_index]
@@ -223,10 +231,9 @@ def create_population(dataframe, num_individuals):
 
 
 if __name__ == "__main__":
+    
     random.seed(random.randint(50, 100))
-    dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file(
-        "berlin52.tsp"
-    )
+    dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file("berlin52.tsp")
     distance_matrix, city_to_idx = create_distance_matrix(dataframe)
 
     population = create_population(dataframe, num_individuals=100)
@@ -234,81 +241,155 @@ if __name__ == "__main__":
         lambda sol: calculate_fitness(sol, distance_matrix, city_to_idx)
     )
 
-    #settings for the genetic algorithms
+    # Genetic algorithm settings
     num_epochs = 15
     crossover_probability = 0.6
     pop_size = 200
-    mutation_probability = max(0.1, 0.4 * (1 - epoch / num_epochs))
+    mutation_probability = max(0.1, 0.4 * num_epochs)
     
     best_fitness_over_time = []
     
-    # Matplotlib için başlangıç ayarları
-    plt.ion()  # Interactive mode enabled
-    fig, ax1 = plt.subplots(1, 1, figsize=(8, 6))  # Sadece fitness tablosu
+    # Real-time plotting setup
+    plt.ion()
+    fig = plt.figure(figsize=(15, 7))
+    gs = fig.add_gridspec(1, 1)
+    ax1 = fig.add_subplot(gs[0])
 
-    # Fitness grafiği başlangıç ayarları
-    ax1.set_title(f"Real-Time Fitness Progress ({dimension} Cities - {name})")
-    ax1.set_xlabel("Epoch")
-    ax1.set_ylabel("Fitness")
-    initial_fitness = population["Fitness"].min()
+    # Parametre metni
+    settings_text = (
+        "⚙️ GA Parameters:\n"
+        f"• Epochs: {num_epochs}\n"
+        f"• Crossover: {crossover_probability}\n"
+        f"• Population: {pop_size}\n"
+        f"• Mutation: {mutation_probability:.2f}"
+    )
+
+    # Başlangıç grafik konfigürasyonu
+    ax1.set_title(f"Real-Time Optimization: {name} ({dimension} Cities)", color=COLOR_PALETTE['main'], pad=20)
+    ax1.set_xlabel("Epoch", fontsize=12)
+    ax1.set_ylabel("Fitness Value", fontsize=12)
     ax1.set_xlim(1, num_epochs)
-    ax1.set_ylim(0, initial_fitness * 1.2)
+    ax1.set_facecolor(COLOR_PALETTE['background'])
+    initial_fitness = None  # Zoom kontrolü için
 
-    # Epoch döngüsü
+    # Optimizasyon döngüsü
     for epoch in range(num_epochs):
-        mutation_probability = mutation_probability
         population = create_new_epoch(
             previous_population=population,
             distance_matrix=distance_matrix,
             city_to_idx=city_to_idx,
             mutation_probability=mutation_probability,
-            crossover_probability =crossover_probability,
+            crossover_probability=crossover_probability,
             pop_size=pop_size,
             dataframe=dataframe,
         )
         best_fitness = population["Fitness"].min()
         best_fitness_over_time.append(best_fitness)
-    
-        # Fitness tablosunu her epoch'ta güncelle
+        
+        # İlk fitness değerini kaydet
+        if initial_fitness is None:
+            initial_fitness = best_fitness
+
+        # Grafik güncelleme
         ax1.clear()
-        ax1.set_title(f"Real-Time Fitness Progress ({dimension} Cities - {name})")
-        ax1.set_xlabel(f"Epoch (Best Fitness: {best_fitness:.2f})")
-        ax1.set_ylabel("Fitness")
+        current_title = f"Epoch: {epoch+1}/{num_epochs} | Best Fitness: {best_fitness:.2f}"
+        ax1.set_title(current_title, color=COLOR_PALETTE['main'], pad=20)
+        ax1.set_xlabel("Epoch", fontsize=12)
+        ax1.set_ylabel("Fitness Value", fontsize=12)
         ax1.set_xlim(1, num_epochs)
-        ax1.set_ylim(0, initial_fitness * 1.2)
+        
+        # Dinamik y-ekseni sınırları
+        y_lower = best_fitness * 0.95
+        y_upper = initial_fitness * 1.05
+        ax1.set_ylim(y_lower, y_upper)
+        ax1.set_facecolor(COLOR_PALETTE['background'])
+        
+        # Güncellenmiş parametre kutusu
+        ax1.text(
+            0.03, 0.25, settings_text,
+            transform=ax1.transAxes,
+            ha='left', va='top',
+            fontsize=11,
+            linespacing=1.5,
+            bbox=dict(
+                boxstyle="round,pad=0.4",
+                facecolor=COLOR_PALETTE['background'],
+                edgecolor=COLOR_PALETTE['main'],
+                alpha=0.95
+            )
+        )
+        
+        # Gelişmiş çizgi grafiği
+        ax1.fill_between(
+            range(1, len(best_fitness_over_time) + 1),
+            best_fitness_over_time,
+            color=COLOR_PALETTE['main'],
+            alpha=0.1
+        )
+        
         ax1.plot(
             range(1, len(best_fitness_over_time) + 1),
             best_fitness_over_time,
-            color="teal",
+            color=COLOR_PALETTE['main'],
+            marker='o',
+            markersize=8,
+            markerfacecolor=COLOR_PALETTE['secondary'],
+            markeredgecolor='white',
+            linestyle='-',
+            linewidth=2.5
         )
 
-        # Fitness tablosunu güncelle ve göster
         plt.draw()
         plt.pause(0.1)
+        print(f"Epoch {epoch + 1}/{num_epochs} \t|\t Best Fitness: {best_fitness:.2f}")
 
-        print(f"Epoch {epoch + 1}/{num_epochs}, Best Fitness: {best_fitness}")
+    # Final görseller
+    plt.ioff()
+    fig = plt.figure(figsize=(18, 8))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.5, 2], wspace=0.3)
 
-    # Epoch döngüsü tamamlandıktan sonra rota tablosu oluştur
-    plt.ioff()  # Interactive mode off
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))  # İki grafik yan yana
-    ax1.set_title(f"Final Fitness Progress ({dimension} Cities - {name})")
-    ax1.set_xlabel(f"Epoch (Best Fitness: {best_fitness:.2f})")
-    ax1.set_ylabel("Fitness")
-    ax1.set_xlim(1, num_epochs)
-    ax1.set_ylim(0, initial_fitness * 1.2)
+    # Fitness Grafiği
+    ax1 = fig.add_subplot(gs[0])
+    ax1.set_title(f"Optimization Summary: {name}", color=COLOR_PALETTE['main'], pad=20)
     ax1.plot(
         range(1, len(best_fitness_over_time) + 1),
         best_fitness_over_time,
-        color="teal",
+        color=COLOR_PALETTE['main'],
+        linewidth=3,
+        marker='o',
+        markersize=8,
+        markerfacecolor=COLOR_PALETTE['secondary']
+    )
+    ax1.fill_between(
+        range(1, len(best_fitness_over_time) + 1),
+        best_fitness_over_time,
+        color=COLOR_PALETTE['main'],
+        alpha=0.1
+    )
+    ax1.set_xlabel("Epoch", fontsize=12)
+    ax1.set_ylabel("Fitness Value", fontsize=12)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_facecolor(COLOR_PALETTE['background'])
+    
+    # Final grafiğe parametre kutusu ekleme
+    ax1.text(
+        0.03, 0.25, settings_text,
+        transform=ax1.transAxes,
+        ha='left', va='top',
+        fontsize=11,
+        linespacing=1.5,
+        bbox=dict(
+            boxstyle="round,pad=0.4",
+            facecolor=COLOR_PALETTE['background'],
+            edgecolor=COLOR_PALETTE['main'],
+            alpha=0.95
+        )
     )
 
-    # Rota tablosunu çiz
-    ax2.set_title("Best Route")
-    ax2.set_xlabel("X Coordinate")
-    ax2.set_ylabel("Y Coordinate")
-    ax2.grid(True)
-
+    # Rota Görselleştirme
+    ax2 = fig.add_subplot(gs[1])
+    ax2.set_title("Optimal Route Visualization", color=COLOR_PALETTE['main'], pad=20)
+    
     best_solution = population.loc[population["Fitness"].idxmin()]
     best_route = best_solution["Solution"]
     coords = (
@@ -317,33 +398,49 @@ if __name__ == "__main__":
         .values
     )
     coords = np.vstack([coords, coords[0]])
-    ax2.plot(coords[:, 0], coords[:, 1], marker="o", linestyle="-", color="b")
-
+    
+    ax2.plot(
+        coords[:, 0], coords[:, 1],
+        marker='o',
+        markersize=10,
+        markerfacecolor=COLOR_PALETTE['secondary'],
+        markeredgecolor='white',
+        linestyle='-',
+        color=COLOR_PALETTE['main'],
+        linewidth=2.5,
+        alpha=0.8
+    )
+    
     for i, city_id in enumerate(best_route):
         ax2.text(
-            coords[i, 0],
-            coords[i, 1],
+            coords[i, 0] + 0.5,
+            coords[i, 1] + 0.5,
             str(city_id),
             fontsize=9,
-            ha="right",
-            va="bottom",
-            color="red",
+            color=COLOR_PALETTE['text'],
+            ha='center',
+            va='center',
+            bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.2')
         )
+    
+    ax2.set_xlabel("X Coordinate", fontsize=12)
+    ax2.set_ylabel("Y Coordinate", fontsize=12)
+    ax2.grid(True, alpha=0.3)
+    ax2.set_facecolor(COLOR_PALETTE['background'])
 
-    # Son tabloyu kaydet ve göster
-    plt.tight_layout()
+    plt.tight_layout(pad=4.0)
     final_fitness = round(best_fitness_over_time[-1], 2)
-    plot_filename = f"{name}_{num_epochs}Epochs_Crossover={crossover_probability}_PopSize={pop_size}_BestFitness={final_fitness}.png"
-    plt.savefig(plot_filename)
+    plot_filename = f"GA_Optimized_{name}_Result_{final_fitness}.png"
+    plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
     plt.show()
 
-    # Greedy çözümlerin en sonda yazılması
-    print("\nGreedy Algorithm Solutions (After GA):")
+    # final results
+    print("\n" + "="*50)
+    print(" Post-Optimization Analysis ".center(50, '='))
+    print("="*50)
     greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
-    print(f"Greedy Solution: {greedy_solution}")
-    print(f"Greedy Fitness: {greedy_fitness}\n")
-    
-    print("Best Route (City IDs):", best_route)
-    print("Best Fitness (Total Distance):", best_solution["Fitness"])
-
-
+    print(f"\n🔍 Greedy Solution Fitness: {greedy_fitness:.2f}")
+    print(f"🏆 GA Best Fitness: {best_solution['Fitness']:.2f}")
+    print(f"💹 Improvement: {((greedy_fitness - best_solution['Fitness'])/greedy_fitness)*100:.1f}%")
+    print("\nOptimal Route City IDs:")
+    print(' → '.join(map(str, best_route)))
