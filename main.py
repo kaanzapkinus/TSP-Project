@@ -236,15 +236,16 @@ if __name__ == "__main__":
     dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file("berlin52.tsp")
     distance_matrix, city_to_idx = create_distance_matrix(dataframe)
 
+    greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
     population = create_population(dataframe, num_individuals=100)
     population["Fitness"] = population["Solution"].apply(
         lambda sol: calculate_fitness(sol, distance_matrix, city_to_idx)
     )
 
     # Genetic algorithm settings
-    num_epochs = 15
+    num_epochs = 10
     crossover_probability = 0.6
-    pop_size = 200
+    pop_size = 100
     mutation_probability = max(0.1, 0.4 * num_epochs)
     
     best_fitness_over_time = []
@@ -261,7 +262,9 @@ if __name__ == "__main__":
         f"• Epochs: {num_epochs}\n"
         f"• Crossover: {crossover_probability}\n"
         f"• Population: {pop_size}\n"
-        f"• Mutation: {mutation_probability:.2f}"
+        f"• Mutation: {mutation_probability:.2f}\n"
+        f"• Greedy Solution Fitness: {greedy_fitness:.2f}\n"
+        f"• Initial Best Fitness: {population['Fitness'].min():.2f}"
     )
 
     # Başlangıç grafik konfigürasyonu
@@ -297,25 +300,35 @@ if __name__ == "__main__":
         ax1.set_xlabel("Epoch", fontsize=12)
         ax1.set_ylabel("Fitness Value", fontsize=12)
         ax1.set_xlim(1, num_epochs)
-        
+            
+        settings_text = (
+        "⚙️ GA Parameters:\n"
+        f"• Epochs: {num_epochs}\n"
+        f"• Crossover: {crossover_probability}\n"
+        f"• Population: {pop_size}\n"
+        f"• Mutation: {mutation_probability:.2f}\n"
+        f"• Greedy Solution Fitness: {greedy_fitness:.2f}\n"
+        f"• Initial Best Fitness: {best_fitness:.2f}\n"
+        f"• Genetic Fitness vs Greedy Fitness {((greedy_fitness - best_fitness)/greedy_fitness)*100:.1f}%" 
+
+    )
         # Dinamik y-ekseni sınırları
         y_lower = best_fitness * 0.95
         y_upper = initial_fitness * 1.05
         ax1.set_ylim(y_lower, y_upper)
         ax1.set_facecolor(COLOR_PALETTE['background'])
         
-        # Güncellenmiş parametre kutusu
         ax1.text(
-            0.03, 0.25, settings_text,
+            0.68, 0.97, settings_text,
             transform=ax1.transAxes,
             ha='left', va='top',
             fontsize=11,
             linespacing=1.5,
             bbox=dict(
-                boxstyle="round,pad=0.4",
-                facecolor=COLOR_PALETTE['background'],
-                edgecolor=COLOR_PALETTE['main'],
-                alpha=0.95
+            boxstyle="round,pad=0.4",
+            facecolor=COLOR_PALETTE['background'],
+            edgecolor=COLOR_PALETTE['main'],
+            alpha=0.95
             )
         )
         
@@ -350,7 +363,7 @@ if __name__ == "__main__":
 
     # Fitness Grafiği
     ax1 = fig.add_subplot(gs[0])
-    ax1.set_title(f"Optimization Summary: {name}", color=COLOR_PALETTE['main'], pad=20)
+    ax1.set_title(f"Fitness Summary: File: {name}, {dimension} Cities", color=COLOR_PALETTE['main'], pad=20)
     ax1.plot(
         range(1, len(best_fitness_over_time) + 1),
         best_fitness_over_time,
@@ -373,9 +386,9 @@ if __name__ == "__main__":
     
     # Final grafiğe parametre kutusu ekleme
     ax1.text(
-        0.03, 0.25, settings_text,
+        0.5, 0.2, settings_text,
         transform=ax1.transAxes,
-        ha='left', va='top',
+        ha='center', va='center',
         fontsize=11,
         linespacing=1.5,
         bbox=dict(
@@ -430,7 +443,8 @@ if __name__ == "__main__":
 
     plt.tight_layout(pad=4.0)
     final_fitness = round(best_fitness_over_time[-1], 2)
-    plot_filename = f"GA_Optimized_{name}_Result_{final_fitness}.png"
+    plot_filename = f"{name}_pop_{pop_size}_crossover_{crossover_probability}_fitness_{final_fitness}.png"
+            
     plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
     plt.show()
 
@@ -438,7 +452,7 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print(" Post-Optimization Analysis ".center(50, '='))
     print("="*50)
-    greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
+    
     print(f"\n🔍 Greedy Solution Fitness: {greedy_fitness:.2f}")
     print(f"🏆 GA Best Fitness: {best_solution['Fitness']:.2f}")
     print(f"💹 Improvement: {((greedy_fitness - best_solution['Fitness'])/greedy_fitness)*100:.1f}%")
