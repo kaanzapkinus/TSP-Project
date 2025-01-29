@@ -1,17 +1,12 @@
+# tsp_hyperoptimized.py
+import math
 import random
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
-from your_module import (  # Kendi fonksiyonlarınızı import edin
-    parse_tsp_file,
-    create_distance_matrix,
-    create_population,
-    calculate_fitness,
-    create_new_epoch,
-    greedy_algorithm
-)
+import numpy as np
+import matplotlib.pyplot as plt
+import time
+from itertools import cycle
 
-# Görsel Stil Sabitleri
 COLOR_PALETTE = {
     'main': "#3498DB",
     'secondary': "#E74C3C",
@@ -20,222 +15,211 @@ COLOR_PALETTE = {
     'accent': "#1ABC9C"
 }
 
-def configure_plots():
-    """Görsel ayarları merkezi olarak yönet"""
-    plt.style.use('seaborn-darkgrid')
-    plt.rcParams.update({
-        'axes.titlesize': 14,
-        'axes.labelsize': 12,
-        'lines.linewidth': 2.5,
-        'grid.alpha': 0.3,
-        'figure.figsize': (16, 8),
-        'font.family': 'DejaVu Sans'
-    })
+# -------------------- HYPER-OPTIMIZED CORE --------------------
+class TurboTSPSolver:
+    def __init__(self, df):
+        self.cities = df[["X", "Y"]].values
+        self.n = len(self.cities)
+        self.dist_matrix = self._precompute_distances()
+        self.city_ids = df["City_ID"].tolist()
+        
+        # Optimizasyon için önbellekler
+        self._id_to_idx = {cid: i for i, cid in enumerate(self.city_ids)}
+        self._best_ever = float('inf')
+        
+        if self.n < 3:
+            raise ValueError("En az 3 şehir gereklidir")
+
+    def _precompute_distances(self):
+        """Vektörleştirilmiş mesafe hesaplama"""
+        diff = self.cities[:, np.newaxis, :] - self.cities[np.newaxis, :, :]
+        return np.sqrt(np.sum(diff**2, axis=2))
+
+    def _tour_length(self, tour_indices):
+        """Numpy ile optimize edilmiş tur uzunluğu"""
+        return np.sum(self.dist_matrix[tour_indices, np.roll(tour_indices, -1)])
+
+    def greedy_solve(self):
+        """Hızlandırılmış açgözlü algoritma"""
+        current = 0  # İndex bazlı çalış
+        unvisited = set(range(1, self.n))
+        tour = [current]
+        
+        while unvisited:
+            nearest = min(unvisited, key=lambda x: self.dist_matrix[current][x])
+            tour.append(nearest)
+            unvisited.remove(nearest)
+            current = nearest
+            
+        return [self.city_ids[i] for i in tour], self._tour_length(tour)
+
+    def genetic_solve(self, time_limit=5):
+        """Zaman sınırlı genetik algoritma"""
+        start_time = time.time()
+        pop_size = min(50, self.n*10)
+        population = self._init_population(pop_size)
+        best = min(population, key=lambda x: x[1])
+        self._best_ever = best[1]
+        
+        # Adaptif parametreler
+        mutation_rate = 0.3
+        no_improvement = 0
+        
+        while time.time() - start_time < time_limit:
+            # Hızlı seçim
+            parents = random.choices(population, k=pop_size, 
+                                   weights=[1/(s+1e-6) for s in [x[1] for x in population]])
+            
+            # Vektörleştirilmiş çaprazlama
+            new_pop = []
+            for i in range(0, pop_size, 2):
+                child1 = self._fast_crossover(parents[i][0], parents[i+1][0])
+                child2 = self._fast_crossover(parents[i+1][0], parents[i][0])
+                new_pop.extend([
+                    self._mutate(child1, mutation_rate),
+                    self._mutate(child2, mutation_rate)
+                ])
+            
+            # Elitizm
+            combined = population + new_pop
+            combined.sort(key=lambda x: x[1])
+            population = combined[:pop_size]
+            
+            # Adaptif parametre ayarı
+            if population[0][1] < self._best_ever:
+                self._best_ever = population[0][1]
+                no_improvement = 0
+                mutation_rate = max(0.1, mutation_rate*0.95)
+            else:
+                no_improvement += 1
+                mutation_rate = min(0.6, mutation_rate*1.05)
+            
+            if no_improvement > 10:
+                population = self._diversify(population)
+                no_improvement = 0
+                
+        best_tour = [self.city_ids[i] for i in population[0][0]]
+        return best_tour, population[0][1]
+
+    def _init_population(self, size):
+        """Önbelleklenmiş popülasyon"""
+        return [self._create_individual() for _ in range(size)]
+
+    def _create_individual(self):
+        """Hızlı birey oluşturma"""
+        tour = list(range(self.n))
+        random.shuffle(tour)
+        return (tour, self._tour_length(tour))
+
+    def _fast_crossover(self, p1, p2):
+        """Sıralı çaprazlama (OX) ile hızlandırılmış"""
+        size = len(p1)
+        a, b = sorted(random.sample(range(size), 2))
+        segment = p1[a:b]
+        child = [-1]*size
+        
+        # Segmenti kopyala
+        child[a:b] = segment
+        
+        # Kalanları p2'den doldur
+        ptr = 0
+        for i in range(size):
+            if child[i] == -1:
+                while p2[ptr] in segment:
+                    ptr += 1
+                child[i] = p2[ptr]
+                ptr += 1
+                
+        return (child, self._tour_length(child))
+
+    def _mutate(self, individual, rate):
+        """Swap + 2-opt combo mutasyon"""
+        tour, score = individual
+        if random.random() < rate:
+            # 2-opt
+            a, b = sorted(random.sample(range(self.n), 2))
+            new_tour = tour[:a] + tour[a:b+1][::-1] + tour[b+1:]
+            new_score = self._tour_length(new_tour)
+            return (new_tour, new_score)
+        return individual
+
+    def _diversify(self, population):
+        """Popülasyon çeşitlendirme"""
+        elite = population[:len(population)//2]
+        new = [self._create_individual() for _ in range(len(population)//2)]
+        return sorted(elite + new, key=lambda x: x[1])[:len(population)]
+
+# -------------------- LIGHTNING REPORT --------------------
+def generate_report(tsp_file):
+    # Veri yükleme
+    df, _ = parse_tsp_file(tsp_file)
+    
+    # Çözücüyü başlat
+    print("⚡ Turbo Çözücü Başlatılıyor...")
+    solver = TurboTSPSolver(df)
+    
+    # Algoritmaları çalıştır
+    print("\n🚀 Açgözlü Algoritma Çalışıyor...")
+    start = time.time()
+    greedy_tour, greedy_len = solver.greedy_solve()
+    print(f"✅ Tamamlandı! Süre: {time.time()-start:.3f}s")
+    
+    print("\n🧬 Genetik Algoritma Çalışıyor (5s limit)...")
+    start = time.time()
+    ga_tour, ga_len = solver.genetic_solve(time_limit=5)
+    print(f"✅ Tamamlandı! Süre: {time.time()-start:.3f}s")
+    
+    # Rastgele 1000 deneme
+    print("\n🎲 Rastgele Tarama Yapılıyor...")
+    random_len = []
+    for _ in range(1000):
+        tour = random.sample(solver.city_ids, solver.n)
+        indices = [solver._id_to_idx[cid] for cid in tour]
+        random_len.append(solver._tour_length(indices))
+    
+    # Sonuçları göster
+    print("\n⭐ Nihai Sonuçlar:")
+    print(f"{'Metrik':<15} | {'Açgözlü':<15} | {'Genetik':<15} | {'Rastgele':<15}")
+    print("-"*65)
+    print(f"{'En İyi':<15} | {greedy_len:<15.2f} | {ga_len:<15.2f} | {min(random_len):<15.2f}")
+    print(f"{'Ortalama':<15} | {'-':<15} | {'-':<15} | {np.mean(random_len):<15.2f}")
+    
+    # Hızlı görselleştirme
+    plt.figure(figsize=(12,6))
+    plt.plot(greedy_len, 'o', color=COLOR_PALETTE['main'], label='Açgözlü')
+    plt.plot(ga_len, 's', color=COLOR_PALETTE['secondary'], label='Genetik')
+    plt.hlines(min(random_len), 0, 2, color=COLOR_PALETTE['accent'], label='Rastgele En İyi')
+    plt.legend()
+    plt.title("Performans Karşılaştırması")
+    plt.savefig("tsp_quick_report.png", dpi=120)
+    print("\n📊 Görsel rapor kaydedildi: tsp_quick_report.png")
+
+# -------------------- UTILITIES --------------------
+def parse_tsp_file(file_path):
+    """Hızlı TSP dosya okuyucu"""
+    with open(file_path, 'r') as f:
+        cities = []
+        read_coords = False
+        for line in f:
+            line = line.strip()
+            if line.startswith("DIMENSION"):
+                dim = int(line.split(":")[1])
+            if line == "NODE_COORD_SECTION":
+                read_coords = True
+                continue
+            if read_coords and line != "EOF":
+                parts = line.split()
+                cities.append([int(parts[0]), float(parts[1]), float(parts[2])])
+        df = pd.DataFrame(cities, columns=["City_ID", "X", "Y"])
+        return df, dim
 
 if __name__ == "__main__":
-    configure_plots()
-    
-    random.seed(random.randint(50, 100))
-    dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file("berlin52.tsp")
-    distance_matrix, city_to_idx = create_distance_matrix(dataframe)
-
-    population = create_population(dataframe, num_individuals=100)
-    population["Fitness"] = population["Solution"].apply(
-        lambda sol: calculate_fitness(sol, distance_matrix, city_to_idx)
-    )
-
-    # Genetic algorithm settings
-    num_epochs = 50
-    crossover_probability = 0.6
-    pop_size = 200
-    mutation_probability = max(0.1, 0.4 * num_epochs)
-    
-    best_fitness_over_time = []
-    
-    # Real-time plotting setup
-    plt.ion()
-    fig = plt.figure(figsize=(15, 7))
-    gs = fig.add_gridspec(1, 1)
-    ax1 = fig.add_subplot(gs[0])
-
-    # Parametre metni
-    settings_text = (
-        "⚙️ GA Parameters:\n"
-        f"• Epochs: {num_epochs}\n"
-        f"• Crossover: {crossover_probability}\n"
-        f"• Population: {pop_size}\n"
-        f"• Mutation: {mutation_probability:.2f}"
-    )
-
-    # Başlangıç grafik konfigürasyonu
-    ax1.set_title(f"Real-Time Optimization: {name} ({dimension} Cities)", color=COLOR_PALETTE['main'], pad=20)
-    ax1.set_xlabel("Epoch", fontsize=12)
-    ax1.set_ylabel("Fitness Value", fontsize=12)
-    ax1.set_xlim(1, num_epochs)
-    ax1.set_ylim(0, population["Fitness"].min() * 1.2)
-    ax1.set_facecolor(COLOR_PALETTE['background'])
-
-    # Parametre kutusu
-    param_box = ax1.text(
-        0.03, 0.25, settings_text,
-        transform=ax1.transAxes,
-        ha='left', va='top',
-        fontsize=11,
-        linespacing=1.5,
-        bbox=dict(
-            boxstyle="round,pad=0.4",
-            facecolor=COLOR_PALETTE['background'],
-            edgecolor=COLOR_PALETTE['main'],
-            alpha=0.95
-        )
-    )
-
-    # Optimizasyon döngüsü
-    for epoch in range(num_epochs):
-        population = create_new_epoch(
-            previous_population=population,
-            distance_matrix=distance_matrix,
-            city_to_idx=city_to_idx,
-            mutation_probability=mutation_probability,
-            crossover_probability=crossover_probability,
-            pop_size=pop_size,
-            dataframe=dataframe,
-        )
-        best_fitness = population["Fitness"].min()
-        best_fitness_over_time.append(best_fitness)
-    
-        # Grafik güncelleme
-        ax1.clear()
-        current_title = f"Epoch: {epoch+1}/{num_epochs} | Best Fitness: {best_fitness:.2f}"
-        ax1.set_title(current_title, color=COLOR_PALETTE['main'], pad=20)
-        ax1.set_xlabel("Epoch", fontsize=12)
-        ax1.set_ylabel("Fitness Value", fontsize=12)
-        ax1.set_xlim(1, num_epochs)
-        ax1.set_ylim(0, population["Fitness"].min() * 1.2)
-        ax1.set_facecolor(COLOR_PALETTE['background'])
+    import sys
+    if len(sys.argv) != 2:
+        print("Kullanım: python tsp_hyperoptimized.py <tsp_dosyası>")
+        sys.exit(1)
         
-        # Güncellenmiş parametre kutusu
-        ax1.text(
-            0.03, 0.25, settings_text,
-            transform=ax1.transAxes,
-            ha='left', va='top',
-            fontsize=11,
-            linespacing=1.5,
-            bbox=dict(
-                boxstyle="round,pad=0.4",
-                facecolor=COLOR_PALETTE['background'],
-                edgecolor=COLOR_PALETTE['main'],
-                alpha=0.95
-            )
-        )
-        
-        # Gelişmiş çizgi grafiği
-        ax1.fill_between(
-            range(1, len(best_fitness_over_time) + 1),
-            best_fitness_over_time,
-            color=COLOR_PALETTE['main'],
-            alpha=0.1
-        )
-        
-        ax1.plot(
-            range(1, len(best_fitness_over_time) + 1),
-            best_fitness_over_time,
-            color=COLOR_PALETTE['main'],
-            marker='o',
-            markersize=8,
-            markerfacecolor=COLOR_PALETTE['secondary'],
-            markeredgecolor='white',
-            linestyle='-',
-            linewidth=2.5
-        )
-
-        plt.draw()
-        plt.pause(0.1)
-        print(f"Epoch {epoch + 1}/{num_epochs} \t|\t Best Fitness: {best_fitness:.2f}")
-
-    # Final görseller
-    plt.ioff()
-    fig = plt.figure(figsize=(18, 8))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.5, 2], wspace=0.3)
-
-    # Fitness Grafiği
-    ax1 = fig.add_subplot(gs[0])
-    ax1.set_title(f"Optimization Summary: {name}", color=COLOR_PALETTE['main'], pad=20)
-    ax1.plot(
-        range(1, len(best_fitness_over_time) + 1),
-        best_fitness_over_time,
-        color=COLOR_PALETTE['main'],
-        linewidth=3,
-        marker='o',
-        markersize=8,
-        markerfacecolor=COLOR_PALETTE['secondary']
-    )
-    ax1.fill_between(
-        range(1, len(best_fitness_over_time) + 1),
-        best_fitness_over_time,
-        color=COLOR_PALETTE['main'],
-        alpha=0.1
-    )
-    ax1.set_xlabel("Epoch", fontsize=12)
-    ax1.set_ylabel("Fitness Value", fontsize=12)
-    ax1.grid(True, alpha=0.3)
-    ax1.set_facecolor(COLOR_PALETTE['background'])
-
-    # Rota Görselleştirme
-    ax2 = fig.add_subplot(gs[1])
-    ax2.set_title("Optimal Route Visualization", color=COLOR_PALETTE['main'], pad=20)
-    
-    best_solution = population.loc[population["Fitness"].idxmin()]
-    best_route = best_solution["Solution"]
-    coords = (
-        dataframe.set_index("City_ID")
-        .loc[best_route][["X_Coordinate", "Y_Coordinate"]]
-        .values
-    )
-    coords = np.vstack([coords, coords[0]])
-    
-    ax2.plot(
-        coords[:, 0], coords[:, 1],
-        marker='o',
-        markersize=10,
-        markerfacecolor=COLOR_PALETTE['secondary'],
-        markeredgecolor='white',
-        linestyle='-',
-        color=COLOR_PALETTE['main'],
-        linewidth=2.5,
-        alpha=0.8
-    )
-    
-    for i, city_id in enumerate(best_route):
-        ax2.text(
-            coords[i, 0] + 0.5,
-            coords[i, 1] + 0.5,
-            str(city_id),
-            fontsize=9,
-            color=COLOR_PALETTE['text'],
-            ha='center',
-            va='center',
-            bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.2')
-        )
-    
-    ax2.set_xlabel("X Coordinate", fontsize=12)
-    ax2.set_ylabel("Y Coordinate", fontsize=12)
-    ax2.grid(True, alpha=0.3)
-    ax2.set_facecolor(COLOR_PALETTE['background'])
-
-    plt.tight_layout(pad=4.0)
-    final_fitness = round(best_fitness_over_time[-1], 2)
-    plot_filename = f"GA_Optimized_{name}_Result_{final_fitness}.png"
-    plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
-    plt.show()
-
-    # Greedy sonuçları
-    print("\n" + "="*50)
-    print(" Post-Optimization Analysis ".center(50, '='))
-    print("="*50)
-    greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
-    print(f"\n🔍 Greedy Solution Fitness: {greedy_fitness:.2f}")
-    print(f"🏆 GA Best Fitness: {best_solution['Fitness']:.2f}")
-    print(f"💹 Improvement: {((greedy_fitness - best_solution['Fitness'])/greedy_fitness)*100:.1f}%")
-    print("\nOptimal Route City IDs:")
-    print(' → '.join(map(str, best_route)))
+    try:
+        generate_report(sys.argv[1])
+    except Exception as e:
+        print(f"Hata: {str(e)}")

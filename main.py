@@ -235,7 +235,7 @@ def create_population(dataframe, num_individuals):
 if __name__ == "__main__":
     
     random.seed(random.randint(50, 100))
-    dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file("kroA100.tsp")
+    dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file("kroA150.tsp")
     distance_matrix, city_to_idx = create_distance_matrix(dataframe)
 
     greedy_solution, greedy_fitness = greedy_algorithm(dataframe, start_city_id=1)
@@ -246,7 +246,7 @@ if __name__ == "__main__":
 
     # Genetic algorithm settings
     num_epochs = 100
-    crossover_probability = 0.8
+    crossover_probability = 0.6
     pop_size = 200
     mutation_probability = 0.33
     
