@@ -445,7 +445,7 @@ def run_part3_comparison(dataframe, distance_matrix, city_to_idx, dimension, #ru
 
 if __name__ == "__main__":
     # Global Settings
-    RUN_PART3 = False  # Set to False for normal operation
+    RUN_PART3 = True  # Set to False for normal operation
     GA_PARAMS = { #GA settings for part 3 mode, for normal operation, update these values in the below after else statement
         'num_epochs': 100,
         'pop_size': 200,
