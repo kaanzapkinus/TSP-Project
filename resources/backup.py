@@ -1,13 +1,10 @@
-import time
+import pandas as pd
 import math
 import random
-import pandas as pd
+import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
-import matplotlib.gridspec as gridspec
-import matplotlib.pyplot as plt
-
-#matplotlib.use('Agg') #this makes the plot to be saved as a file instead of showing it in the screen
+matplotlib.use('Agg')
 
 COLOR_PALETTE = {
     'main': "#3498DB",
@@ -214,6 +211,10 @@ def create_population(dataframe, num_individuals): #creating the initial populat
 
 def run_part3_comparison(dataframe, distance_matrix, city_to_idx, dimension, #running the performance comparison only for report's part 3 section
                         ga_epochs, pop_size, mutation_prob, crossover_prob):
+    import time
+    import matplotlib.pyplot as plt
+    import matplotlib.gridspec as gridspec
+    import numpy as np
     start_time = time.time()
 
     #genetic algorithm runs
@@ -445,7 +446,7 @@ def run_part3_comparison(dataframe, distance_matrix, city_to_idx, dimension, #ru
 
 if __name__ == "__main__":
     # Global Settings
-    RUN_PART3 = False  # Set to False for normal operation
+    RUN_PART3 = True  # Set to False for normal operation
     GA_PARAMS = { #GA settings for part 3 mode, for normal operation, update these values in the below after else statement
         'num_epochs': 100,
         'pop_size': 200,
@@ -454,7 +455,7 @@ if __name__ == "__main__":
     }
 
     # Load TSP Data
-    dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file("berlin11.tsp")
+    dataframe, name, file_type, comment, dimension, edge_weight_type = parse_tsp_file("kroA150.tsp")
     distance_matrix, city_to_idx = create_distance_matrix(dataframe)
 
     if RUN_PART3:
@@ -676,4 +677,3 @@ if __name__ == "__main__":
         print(f"🚀 Improvement: {((greedy_fitness - best_solution['Fitness'])/greedy_fitness)*100:.1f}%")
         
         
-
